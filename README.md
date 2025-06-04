@@ -43,7 +43,7 @@ All experiments were run in **Google Colab** with the following key dependencies
 ## Citation
 If you use this code in your research, please cite the following:
 
-> Ousmane, B. (2025). *Network anomaly detection using machine learning models* [Source code]. GitHub. https://github.com/ousmaneb/network-anomaly-detection-ml
+> Barry, O. (2025). *Network anomaly detection using machine learning models* [Source code]. GitHub. https://github.com/ousmaneb/network-anomaly-detection-ml
 
 ## License
 This codebase is released for academic and research purposes only. Commercial use, redistribution, or modification of the code outside the scope of scholarly work is prohibited without explicit written permission from the author.
