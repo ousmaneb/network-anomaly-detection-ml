@@ -1,0 +1,42 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Create DataFrame with your execution time data
+exec_df = pd.DataFrame({
+    "Model": [
+        "Decision Tree", "Custom Neural Net", "CatBoost", "AdaBoost", "LightGBM",
+        "Logistic Regression", "Random Forest", "XGBoost"
+    ],
+    "Binary Time (s)": [0.37, 17.35, 5.73, 7.05, 2.32, 1.94, 4.60, 2.17],
+    "Multiclass No SMOTE (s)": [0.36, 17.45, 108.15, 7.11, 36.81, 26.43, 6.22, 31.61],
+    "Multiclass SMOTE (s)": [8.52, 101.74, 1090.33, 177.47, 260.64, 329.73, 118.20, 289.18]
+})
+
+# Melt the DataFrame for easier plotting
+melted = exec_df.melt(id_vars="Model", var_name="Task", value_name="Time (s)")
+
+# Plot using Seaborn
+plt.figure(figsize=(18, 10))
+ax = sns.barplot(data=melted, x="Model", y="Time (s)", hue="Task")
+
+# Improve title and axis label font sizes
+plt.title("Execution Time Comparison Across Models", fontsize=22)
+plt.xlabel("Model", fontsize=18)
+plt.ylabel("Execution Time (s)", fontsize=18)
+plt.xticks(rotation=45, fontsize=14)
+plt.yticks(fontsize=14)
+plt.yscale("log")  # Log scale to compare large range of values
+
+# Annotate bars with readable font size
+for p in ax.patches:
+    height = p.get_height()
+    if height > 0:
+        ax.annotate(f"{height:.2f}s",
+                    (p.get_x() + p.get_width() / 2., height),
+                    ha='center', va='bottom', fontsize=12, rotation=0)
+
+# Increase legend font size
+plt.legend(title="Task", fontsize=14, title_fontsize=16)
+plt.tight_layout()
+plt.show()
