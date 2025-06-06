@@ -1,0 +1,186 @@
+# ========================
+# Enhanced Network Anomaly Detection Using Machine Learning Models
+# ========================
+!pip install -q catboost lightgbm imbalanced-learn
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import time
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import classification_report, confusion_matrix, balanced_accuracy_score, precision_score, recall_score, f1_score
+from imblearn.combine import SMOTEENN
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
+from catboost import CatBoostClassifier
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.utils import to_categorical
+
+# Timer
+global_start_time = time.time()
+
+# Load and preprocess
+train_data = pd.read_csv("KDDTrain+.csv", header=None)
+test_data = pd.read_csv("KDDTest+.csv", header=None)
+
+column_names = [
+    "duration", "protocol_type", "service", "flag", "src_bytes", "dst_bytes",
+    "land", "wrong_fragment", "urgent", "hot", "num_failed_logins", "logged_in",
+    "num_compromised", "root_shell", "su_attempted", "num_root", "num_file_creations",
+    "num_shells", "num_access_files", "num_outbound_cmds", "is_host_login",
+    "is_guest_login", "count", "srv_count", "serror_rate", "srv_serror_rate",
+    "rerror_rate", "srv_rerror_rate", "same_srv_rate", "diff_srv_rate", "srv_diff_host_rate",
+    "dst_host_count", "dst_host_srv_count", "dst_host_same_srv_rate", "dst_host_diff_srv_rate",
+    "dst_host_same_src_port_rate", "dst_host_srv_diff_host_rate", "dst_host_serror_rate",
+    "dst_host_srv_serror_rate", "dst_host_rerror_rate", "dst_host_srv_rerror_rate", "label", "difficulty_level"
+]
+train_data.columns = column_names
+test_data.columns = column_names
+
+combined_data = pd.concat([train_data, test_data], ignore_index=True).sample(frac=0.5, random_state=42)
+drop_cols = ["land", "wrong_fragment", "urgent", "num_outbound_cmds", "is_host_login", "difficulty_level"]
+X = combined_data.drop(columns=["label"] + drop_cols)
+
+for col in ["protocol_type", "service", "flag"]:
+    X[col] = X[col].astype("category").cat.codes
+
+y = combined_data["label"]
+binary_y = (y == "normal").astype(int)
+
+common_classes = y.value_counts()[y.value_counts() > 100].index
+y_multiclass = y[y.isin(common_classes)]
+X_multiclass = X[y.isin(common_classes)]
+le = LabelEncoder()
+y_multiclass_encoded = le.fit_transform(y_multiclass)
+
+X_train_binary, X_test_binary, y_train_binary, y_test_binary = train_test_split(X, binary_y, test_size=0.2, stratify=binary_y, random_state=42)
+X_train_multi, X_test_multi, y_train_multi, y_test_multi = train_test_split(X_multiclass, y_multiclass_encoded, test_size=0.2, stratify=y_multiclass_encoded, random_state=42)
+
+scaler = StandardScaler()
+X_train_binary = scaler.fit_transform(X_train_binary)
+X_test_binary = scaler.transform(X_test_binary)
+X_train_multi = scaler.fit_transform(X_train_multi)
+X_test_multi = scaler.transform(X_test_multi)
+
+smote = SMOTEENN(random_state=42)
+X_train_multi_smote, y_train_multi_smote = smote.fit_resample(X_train_multi, y_train_multi)
+
+models = {
+    "Logistic Regression": LogisticRegression(max_iter=1000, solver="lbfgs", class_weight="balanced", n_jobs=-1),
+    "Decision Tree": DecisionTreeClassifier(max_depth=20, min_samples_split=5, class_weight="balanced", random_state=42),
+    "Random Forest": RandomForestClassifier(n_estimators=150, max_depth=20, class_weight="balanced", n_jobs=-1, random_state=42),
+    "AdaBoost": AdaBoostClassifier(n_estimators=150, learning_rate=0.8, random_state=42),
+    "XGBoost": XGBClassifier(n_estimators=250, learning_rate=0.05, max_depth=6, eval_metric='mlogloss', n_jobs=-1, tree_method='hist'),
+    "LightGBM": LGBMClassifier(n_estimators=250, learning_rate=0.05, class_weight="balanced"),
+    "CatBoost": CatBoostClassifier(iterations=250, learning_rate=0.05, depth=6, verbose=0)
+}
+
+def get_custom_model(input_dim, num_classes):
+    model = Sequential()
+    model.add(Dense(256, input_dim=input_dim, activation='relu'))
+    model.add(Dropout(0.4))
+    model.add(Dense(128, activation='relu'))
+    model.add(Dropout(0.4))
+    model.add(Dense(64, activation='relu'))
+    model.add(Dense(num_classes, activation='softmax'))
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    return model
+
+def train_models(X_train, X_test, y_train, y_test, is_binary=False, label_encoder=None):
+    results, times, reports, conf_matrices = [], {}, {}, {}
+    for name, model in models.items():
+        start = time.time()
+        model.fit(X_train, y_train)
+        preds = model.predict(X_test)
+        end = time.time()
+
+        report = classification_report(y_test, preds, output_dict=True, zero_division=1)
+        reports[name] = pd.DataFrame(report).T.round(4)
+        results.append({
+            "Model": name,
+            "Accuracy": round(report["accuracy"], 4),
+            "Balanced Accuracy": round(balanced_accuracy_score(y_test, preds), 4),
+            "Precision": round(precision_score(y_test, preds, average='macro', zero_division=1), 4),
+            "Recall": round(recall_score(y_test, preds, average='macro', zero_division=1), 4),
+            "Macro F1": round(report["macro avg"]["f1-score"], 4),
+            "Weighted F1": round(report["weighted avg"]["f1-score"], 4)
+        })
+        times[name] = round(end - start, 2)
+        all_labels = label_encoder.classes_ if label_encoder else np.unique(y_test)
+        conf_matrices[name] = pd.DataFrame(
+            confusion_matrix(y_test, preds, labels=range(len(all_labels))),
+            index=all_labels,
+            columns=all_labels
+        )
+
+    custom_model = get_custom_model(X_train.shape[1], len(np.unique(y_train)))
+    start = time.time()
+    y_train_cat = to_categorical(y_train)
+    y_test_cat = to_categorical(y_test)
+    custom_model.fit(X_train, y_train_cat, epochs=15, batch_size=256, validation_split=0.1, verbose=0)
+    preds = np.argmax(custom_model.predict(X_test), axis=1)
+    end = time.time()
+    report = classification_report(y_test, preds, output_dict=True, zero_division=1)
+    reports["Custom Neural Net"] = pd.DataFrame(report).T.round(4)
+    results.append({
+        "Model": "Custom Neural Net",
+        "Accuracy": round(report["accuracy"], 4),
+        "Balanced Accuracy": round(balanced_accuracy_score(y_test, preds), 4),
+        "Precision": round(precision_score(y_test, preds, average='macro', zero_division=1), 4),
+        "Recall": round(recall_score(y_test, preds, average='macro', zero_division=1), 4),
+        "Macro F1": round(report["macro avg"]["f1-score"], 4),
+        "Weighted F1": round(report["weighted avg"]["f1-score"], 4)
+    })
+    times["Custom Neural Net"] = round(end - start, 2)
+    all_labels = label_encoder.classes_ if label_encoder else np.unique(y_test)
+    conf_matrices["Custom Neural Net"] = pd.DataFrame(
+        confusion_matrix(y_test, preds, labels=range(len(all_labels))),
+        index=all_labels,
+        columns=all_labels
+    )
+
+    return pd.DataFrame(results), times, reports, conf_matrices
+
+# Run
+binary_results, binary_times, binary_reports, binary_conf = train_models(X_train_binary, X_test_binary, y_train_binary, y_test_binary, is_binary=True)
+multi_results, multi_times, multi_reports, multi_conf = train_models(X_train_multi, X_test_multi, y_train_multi, y_test_multi, label_encoder=le)
+multi_smote_results, multi_smote_times, multi_smote_reports, multi_smote_conf = train_models(X_train_multi_smote, X_test_multi, y_train_multi_smote, y_test_multi, label_encoder=le)
+
+exec_df = pd.DataFrame([{
+    "Model": k,
+    "Binary Time (s)": binary_times.get(k, 0),
+    "Multiclass No SMOTE (s)": multi_times.get(k, 0),
+    "Multiclass SMOTE (s)": multi_smote_times.get(k, 0)
+} for k in set(list(binary_times.keys()) + list(multi_times.keys()) + list(multi_smote_times.keys()))])
+
+def display_classification_reports(report_dict, title):
+    print(f"\n=== {title} ===")
+    for model_name, df in report_dict.items():
+        print(f"\nModel: {model_name}")
+        print(df)
+
+def display_conf_matrices(conf_dict, title):
+    print(f"\n=== {title} ===")
+    for model_name, cm in conf_dict.items():
+        print(f"\nModel: {model_name}")
+        print(cm)
+
+print("\n--- Binary Classification ---\n", binary_results)
+print("\n--- Multiclass Without SMOTE ---\n", multi_results)
+print("\n--- Multiclass With SMOTE ---\n", multi_smote_results)
+print("\n--- Execution Times ---\n", exec_df)
+print(f"\n Total Time: {round(time.time() - global_start_time, 2)} seconds")
+
+display_classification_reports(binary_reports, "Binary Classification Reports")
+display_classification_reports(multi_reports, "Multiclass Classification Reports (No SMOTE)")
+display_classification_reports(multi_smote_reports, "Multiclass Classification Reports (With SMOTE)")
+
+display_conf_matrices(binary_conf, "Binary Confusion Matrices")
+display_conf_matrices(multi_conf, "Multiclass Confusion Matrices (No SMOTE)")
+display_conf_matrices(multi_smote_conf, "Multiclass Confusion Matrices (With SMOTE)")
