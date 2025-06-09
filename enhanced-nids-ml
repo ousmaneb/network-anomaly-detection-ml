@@ -57,6 +57,8 @@ binary_y = (y == "normal").astype(int)
 common_classes = y.value_counts()[y.value_counts() > 100].index
 y_multiclass = y[y.isin(common_classes)]
 X_multiclass = X[y.isin(common_classes)]
+
+# Encode class names to numeric labels
 le = LabelEncoder()
 y_multiclass_encoded = le.fit_transform(y_multiclass)
 
@@ -103,7 +105,11 @@ def train_models(X_train, X_test, y_train, y_test, is_binary=False):
         preds = model.predict(X_test)
         end = time.time()
 
-        report = classification_report(y_test, preds, output_dict=True, zero_division=1)
+        if is_binary:
+            report = classification_report(y_test, preds, output_dict=True, zero_division=1)
+        else:
+            report = classification_report(y_test, preds, target_names=le.classes_, output_dict=True, zero_division=1)
+
         results.append({
             "Model": name,
             "Accuracy": round(report["accuracy"], 4),
@@ -124,7 +130,12 @@ def train_models(X_train, X_test, y_train, y_test, is_binary=False):
     custom_model.fit(X_train, y_train_cat, epochs=15, batch_size=256, validation_split=0.1, verbose=0)
     preds = np.argmax(custom_model.predict(X_test), axis=1)
     end = time.time()
-    report = classification_report(y_test, preds, output_dict=True, zero_division=1)
+
+    if is_binary:
+        report = classification_report(y_test, preds, output_dict=True, zero_division=1)
+    else:
+        report = classification_report(y_test, preds, target_names=le.classes_, output_dict=True, zero_division=1)
+
     results.append({
         "Model": "Custom Neural Net",
         "Accuracy": round(report["accuracy"], 4),
@@ -161,12 +172,12 @@ for model, cm in binary_conf.items():
 print("\nSummary of Multiclass Confusion Matrices (Without SMOTE):")
 for model, cm in multi_conf.items():
     print(f"\nConfusion Matrix - {model}:")
-    print(pd.DataFrame(cm))
+    print(pd.DataFrame(cm, index=le.classes_, columns=le.classes_))
 
 print("\nSummary of Multiclass Confusion Matrices (With SMOTE):")
 for model, cm in multi_smote_conf.items():
     print(f"\nConfusion Matrix - {model}:")
-    print(pd.DataFrame(cm))
+    print(pd.DataFrame(cm, index=le.classes_, columns=le.classes_))
 
 # Classification Reports
 for model_name, report_df in multi_reports.items():
